@@ -354,11 +354,15 @@ class Mirrorer:
         fileinfo: dict,
     ) -> Dict[str, packaging.requirements.Requirement]:
         filepath = os.path.join(self.index_path, requirement.name, fileinfo["filename"])
-        hashalg = (
-            PREFERRED_HASH_ALG
-            if PREFERRED_HASH_ALG in fileinfo["hashes"]
-            else fileinfo["hashes"].keys()[0]
-        )
+        
+        if (len(fileinfo["hashes"].keys()) > 0):
+            hashalg = (
+                PREFERRED_HASH_ALG
+                if PREFERRED_HASH_ALG in fileinfo["hashes"]
+                else fileinfo["hashes"].keys()[0]
+            )
+        else:
+            hashalg = None
 
         self._download_file(fileinfo, filepath, hashalg)
 
@@ -383,15 +387,16 @@ class Mirrorer:
         target: str,
         hashalg: str,
     ) -> bool:
-        exphash = fileinfo["hashes"][hashalg]
-
         os.makedirs(os.path.dirname(target), exist_ok=True)
 
         # if target already exists, verify its hash and only download if
         # there's a mismatch
         if os.path.exists(target):
+            if (hashalg is None):
+                return True
+
             truehash = self._hash_file(target, hashalg)
-            if truehash == exphash:
+            if truehash == fileinfo["hashes"][hashalg]:
                 return True
 
         print("\t{}...".format(fileinfo["url"]), end=" ")
@@ -399,9 +404,10 @@ class Mirrorer:
             out.write(inp.read())
         print("done")
 
-        truehash = self._hash_file(target, hashalg)
-        if truehash != exphash:
-            raise Exception("Digest mismatch for {}".format(fileinfo["filename"]))
+        if (hashalg is not None):
+            truehash = self._hash_file(target, hashalg)
+            if truehash != fileinfo["hashes"][hashalg]:
+                raise Exception("Digest mismatch for {}".format(fileinfo["filename"]))
 
         return True
 
