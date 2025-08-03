@@ -20,7 +20,7 @@ import packaging.version
 
 from morgan import configurator, metadata, server
 from morgan.__about__ import __version__
-from morgan.utils import to_single_dash
+from morgan.utils import to_single_dash, get_files
 
 PYPI_ADDRESS = "https://pypi.org/simple/"
 PREFERRED_HASH_ALG = "sha256"
@@ -132,26 +132,44 @@ class Mirrorer:
             print("{}".format(requirement))
 
         data: dict = None
+        
+        try:
+            # get information about this package from the Simple API in JSON
+            # format as per PEP 691
+            request = urllib.request.Request(
+                "{}{}/".format(self.index_url, requirement.name),
+                headers={
+                    "Accept": "application/vnd.pypi.simple.v1+json",
+                },
+            )
 
-        # get information about this package from the Simple API in JSON
-        # format as per PEP 691
-        request = urllib.request.Request(
-            "{}{}/".format(self.index_url, requirement.name),
-            headers={
-                "Accept": "application/vnd.pypi.simple.v1+json",
-            },
-        )
+            with urllib.request.urlopen(request) as response:
+                data = json.load(response)
 
-        with urllib.request.urlopen(request) as response:
-            data = json.load(response)
+            # check metadata version ~1.0
+            v_str = data["meta"]["api-version"]
+            if not v_str:
+                v_str = "1.0"
+            v_int = [int(i) for i in v_str.split(".")[:2]]
+            if v_int[0] != 1:
+                raise Exception(f"Unsupported metadata version {v_str}, only support 1.x")
 
-        # check metadata version ~1.0
-        v_str = data["meta"]["api-version"]
-        if not v_str:
-            v_str = "1.0"
-        v_int = [int(i) for i in v_str.split(".")[:2]]
-        if v_int[0] != 1:
-            raise Exception(f"Unsupported metadata version {v_str}, only support 1.x")
+        except:
+            # Response is not json serializable
+            # Then index-url should support PEP 503
+            request = urllib.request.Request(
+                "{}{}/".format(self.index_url, requirement.name),
+                headers={
+                    "Accept": "text/html",
+                },
+            )
+
+            with urllib.request.urlopen(request) as response:
+                html_text = str(response.read())
+                data = {
+                    "alternative_url": [],
+                    "files": get_files(html_text, self.index_url)
+                }
 
         files = data["files"]
         if files is None or not isinstance(files, list):
